@@ -7,4 +7,8 @@ Repository that contains Group 13 code production for assigments of course DD236
 - Corresponding folder contains the code
 - Bonus question is under `ex_4/` folder
 
-Code made and ran on Tegner
+Code made for and ran on Tegner, following compilation chain used:
+
+```{bash}
+nvcc -arch=sm_30 -I/pdc/vol/cuda/cuda-10.0/samples/common/inc exercise_X.cu -o exercise_X
+```
