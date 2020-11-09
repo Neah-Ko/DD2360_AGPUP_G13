@@ -3,11 +3,12 @@
 #include <sys/time.h>
 
 // defaults 
-#define NUM_PARTICLES 1
-#define NUM_ITERATION 1000
+#define NUM_PARTICLES 10000
+#define NUM_ITERATION 500
 #define BLOCK_SIZE 256
 #define BOUND_RAND 100
-
+#define FLOAT_TH 1e-4
+#define FDIFF(a, b) fabs((a - b) / min(a, b))
 
 
 typedef struct Particle {
@@ -43,8 +44,9 @@ __global__ void timestepKernel(size_t n, int t, Particle * d_vec){
 	);
 }
 
-void simulationLauncher(size_t n, Particle * vec){
+void simulationLauncher(size_t n, int m, int tpb, Particle * vec){
 	Particle * d_vec;
+	
 
 	cudaMalloc(&d_vec, n*sizeof(Particle));
 
@@ -52,8 +54,8 @@ void simulationLauncher(size_t n, Particle * vec){
 	cudaMemcpy(d_vec, vec, n*sizeof(Particle), cudaMemcpyHostToDevice);
 
 
-	for(int t = 0; t < NUM_ITERATION; t++){
-		timestepKernel<<<(n + BLOCK_SIZE - 1)/BLOCK_SIZE, BLOCK_SIZE>>>(n, t, d_vec);
+	for(int t = 0; t < m; t++){
+		timestepKernel<<<(n + tpb - 1)/tpb, tpb>>>(n, t, d_vec);
 	}
 
 	cudaMemcpy(vec, d_vec, n*sizeof(Particle), cudaMemcpyDeviceToHost);
@@ -77,9 +79,17 @@ void timestep(size_t n, int t, Particle * vec){
 	}
 }
 
-int main(){
+
+float f3fdiff(float3 a, float3 b){
+	return (FDIFF(a.x, b.x) + FDIFF(a.y, b.y) + FDIFF(a.z, b.z)) / 3.0;
+}
+
+int main(int argc, char **argv){
 	/* variables */
-	int n = NUM_PARTICLES;
+	int n = (argc > 1) ? strtol(argv[1], NULL, 10) : NUM_PARTICLES;
+	int m = (argc > 2) ? strtol(argv[2], NULL, 10) : NUM_ITERATION;
+	int tpb = (argc > 3) ? strtol(argv[3], NULL, 10) : BLOCK_SIZE;
+
 	Particle gVec[n];
 	Particle cVec[n];
 	
@@ -106,7 +116,7 @@ int main(){
 	/* simulate: CPU */
 	printf("Simulating on the CPU… ");
 	double cpu_iStart = cpuSecond();
-	for(int t = 0; t < NUM_ITERATION; t++){
+	for(int t = 0; t < m; t++){
 		timestep(n, t, cVec);
 	}
 	double cpu_iElaps = cpuSecond() - cpu_iStart;
@@ -115,20 +125,23 @@ int main(){
 	/* simulate: GPU */
 	printf("Simulating on the GPU… ");
 	double gpu_iStart = cpuSecond();
-	simulationLauncher(n,  gVec);
+	simulationLauncher(n, m, tpb, gVec);
 	cudaDeviceSynchronize();
 	double gpu_iElaps = cpuSecond() - gpu_iStart;
 	printf("Done! in %f seconds\n", gpu_iElaps);
 
 
 	/* Compare */
-	// printf("Comparing the output for each implementation… ");
-	// for(size_t i = 0; i < ARRAY_SIZE; i++){
-	// 	if((y[i] - y_k[i]) > FLOAT_TH) {
-	// 		printf("Incorrect!\n");
-	// 		return -1;
-	// 	}
-	// }
-	// printf("Correct!\n");
+	printf("Comparing the output for each implementation… ");
+	float avgE = 0;
+	for(size_t i = 0; i < n; i++){
+		avgE += f3fdiff(cVec[i].position, gVec[i].position);
+	}
+	avgE /= n;
+	if(avgE > FLOAT_TH){
+		printf("Incorrect!\n");
+		return -1;
+	}
+	printf("Correct!\n");
 	return 0;
 }

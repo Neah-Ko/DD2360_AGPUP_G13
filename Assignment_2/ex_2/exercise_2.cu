@@ -6,6 +6,7 @@
 #define ARRAY_SIZE 100000 // default
 #define BOUND_RAND 100
 #define FLOAT_TH 1e-4
+#define FDIFF(a, b) fabs((a - b) / min(a, b))
 
 __global__ void saxpyKernel(size_t n, const float a, const float * d_x, float * d_y){
 	/* get index */
@@ -90,7 +91,8 @@ int main(int argc, char **argv){
 	printf("Comparing the output for each implementation… ");
 	float avgE = 0;
 	for(size_t i = 0; i < n; i++){
-		avgE += fabs((y[i] - y_k[i]) / min(y[i], y_k[i]));
+		avgE += FDIFF(y[i], y_k[i]);
+		// avgE += fabs((y[i] - y_k[i]) / min(y[i], y_k[i]));
 	}
 	avgE /= n;
 	if(avgE > FLOAT_TH){
