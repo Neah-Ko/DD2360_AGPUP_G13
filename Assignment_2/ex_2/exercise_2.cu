@@ -3,9 +3,9 @@
 #include <sys/time.h>
 
 #define TPB 256
-#define ARRAY_SIZE 1000000
+#define ARRAY_SIZE 100000 // default
 #define BOUND_RAND 100
-#define FLOAT_TH 1e-2
+#define FLOAT_TH 1e-4
 
 __global__ void saxpyKernel(size_t n, const float a, const float * d_x, float * d_y){
 	/* get index */
@@ -51,18 +51,20 @@ double cpuSecond() {
 }
 
 
-int main(){
+int main(int argc, char **argv){
 	/* variables */
-	float x[ARRAY_SIZE];
-	float y[ARRAY_SIZE];
-	float y_k[ARRAY_SIZE];
+	int n = (argc > 1) ? strtol(argv[1], NULL, 10) : ARRAY_SIZE;
+
+	float x[n];
+	float y[n];
+	float y_k[n];
 	float a;
-	printf("ARRAY_SIZE = %d\n", ARRAY_SIZE);
+	printf("n = %d\n", n);
 
 	/* generate data */
 	srand(time(NULL)); // seed
 	a = randFloat();
-	for(size_t i = 0; i < ARRAY_SIZE; i++){
+	for(size_t i = 0; i < n; i++){
 		x[i] = randFloat(); 
 		y[i] = randFloat();
 		y_k[i] = y[i];
@@ -71,7 +73,7 @@ int main(){
 	/* CPU version */
 	printf("Computing SAXPY on the CPU… ");
 	double cpu_iStart = cpuSecond();
-	saxpy(ARRAY_SIZE, a, x, y);
+	saxpy(n, a, x, y);
 	double cpu_iElaps = cpuSecond() - cpu_iStart;
 	printf("Done! in %f seconds\n", cpu_iElaps);
 
@@ -79,18 +81,21 @@ int main(){
 	/* GPU version */
 	printf("Computing SAXPY on the GPU… ");
 	double gpu_iStart = cpuSecond();
-	saxpyLauncher(ARRAY_SIZE, a, x, y_k);
+	saxpyLauncher(n, a, x, y_k);
 	cudaDeviceSynchronize();
 	double gpu_iElaps = cpuSecond() - gpu_iStart;
 	printf("Done! in %f seconds\n", gpu_iElaps);
 
 	/* Compare */
 	printf("Comparing the output for each implementation… ");
-	for(size_t i = 0; i < ARRAY_SIZE; i++){
-		if((y[i] - y_k[i]) > FLOAT_TH) {
-			printf("Incorrect!\n");
-			return -1;
-		}
+	float avgE = 0;
+	for(size_t i = 0; i < n; i++){
+		avgE += fabs((y[i] - y_k[i]) / min(y[i], y_k[i]));
+	}
+	avgE /= n;
+	if(avgE > FLOAT_TH){
+		printf("Incorrect!\n");
+		return -1;
 	}
 	printf("Correct!\n");
 	return 0;
