@@ -11,7 +11,7 @@
 /* threads in each blocks */
 #define TPB 256
 /* blocks in the grid */
-#define NB 4
+#define NB 1
 
 double cpuSecond() {
    struct timeval tp;
@@ -44,12 +44,12 @@ __global__ void piKernel(size_t n, int * d_counts, curandState * states, int num
 	d_counts[i] = count;
 }
 
-void piLauncher(size_t n, int * counts, int itr_per_thr, int thr_per_blk) {
+void piLauncher(int n, int * counts, int itr_per_thr, int thr_per_blk) {
 	int * d_counts;
 	curandState *dev_random;
 
 
-	cudaMalloc((void**)&dev_random, n*sizeof(curandState));
+	cudaMalloc(&dev_random, n*sizeof(curandState));
 	cudaMalloc(&d_counts, n*sizeof(int));
 
 	piKernel<<<NB, thr_per_blk>>>(n, d_counts, dev_random, itr_per_thr);
@@ -97,9 +97,9 @@ int main(int argc, char **argv){
 	for(int i = 0; i < n; i++){
 		count += counts[i];
 	}
-	pi = (((double)count) / ((double) n) / ((double) NUM_ITER_KERNEL)) * 4.0;
+	pi = (((double)count) / ((double) n) / ((double) itr_per_thr)) * 4.0;
 
-	printf("%d %d %lf %lf\n", itr_per_thr, thr_per_blk, gpu_iElaps, pi);
+	printf("%d %d %lf %lf %d\n", itr_per_thr, thr_per_blk, gpu_iElaps, pi, count);
 
 	//printf("Done! in %f seconds\n", gpu_iElaps);
 	//printf("The result is %f\n", pi);
