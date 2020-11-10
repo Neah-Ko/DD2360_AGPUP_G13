@@ -1,73 +1,82 @@
-/*
- * Head comment
- */
-
 #include <stdio.h>
-
+#include <stdlib.h>
+#include <sys/time.h>
 #include <curand_kernel.h>
 #include <curand.h>
 
-// Oh boi, I hate those #define preprocessor directives.
-#define TPB 1024
-#define NB 4
-#define ITER_PER_THREAD 1000000
+// #define NUM_ITER 1000000000
+#define NUM_ITER 10000000
+#define NUM_ITER_KERNEL 100
+#define TPB 128
 
 
+double cpuSecond() {
+   struct timeval tp;
+   gettimeofday(&tp,NULL);
+   return ((double)tp.tv_sec + (double)tp.tv_usec*1.e-6);
+}
 
-/*
- * This code is not a 1:1 copy of ORNL's (which is linked on the assignment's
- * page. Due to the fact that our code is bound to the GPL licence.
- */
+__global__ void piKernel(size_t n, int * d_counts, curandState * states){
+	/* get index */
+	const int i = blockIdx.x * blockDim.x + threadIdx.x;
+	if (i > n) return;
 
-__global__ void count_pi(uint32_t * storage, curandState * rand_states) {
+	double x;
+	double y;
+	double z;
 
-	const int id = threadIdx.x + blockDim.x * blockIdx.x;
-	
-	// initialize the random state of this very thread.
-	curand_init(id, id, 0, rand_states + id);
+    curand_init(i, i, 0, &states[i]);
 
-	uint32_t count = 0;
+    for(int j = 0; j < NUM_ITER_KERNEL; j++){
+    	x = curand_uniform(&states[i]);
+    	y = curand_uniform(&states[i]);
+    	z = sqrt((x*x) + (y*y));
+    	if (z <= 1.0) {
+            d_counts[i]++;
+        }
+    }
+}
 
-	for (unsigned int i = 0; i < ITER_PER_THREAD; i++) {
-		float x = curand_uniform (&rand_states[id]);
-		float y = curand_uniform (&rand_states[id]);
+void piLauncher(size_t n, int * counts){
+	int * d_counts;
+	curandState *dev_random;
 
-		if (x*x + y*y <= 1)
-			count++;
-	}
-	
-	storage[id] = count;
+
+	cudaMalloc((void**)&dev_random, n*sizeof(curandState));
+	cudaMalloc(&d_counts, n*sizeof(int));
+	cudaMemset(d_counts, 0, n*sizeof(int));
+
+	piKernel<<<(n + TPB -1), TPB>>>(n, d_counts, dev_random);
+
+	cudaMemcpy(counts, d_counts, n*sizeof(int), cudaMemcpyDeviceToHost);
+
+	cudaFree(dev_random);
+	cudaFree(d_counts);
 }
 
 
-int main() {
+int main(int argc, char **argv){
+	/* variables */
+	int n = NUM_ITER / NUM_ITER_KERNEL;
+	int counts[n];
+	int count = 0;
+	double pi;
 
-	// The amount of threads.
-	// There is no need to round up with (NB+TPB-1) / TPB here.
-	const size_t size = NB * TPB;
-
-	uint32_t *counts = NULL;
-	uint32_t *d_counts = NULL;
-	cudaMalloc(&d_counts, size * sizeof(uint32_t));
-
-	curandState *dev_random;
-	cudaMalloc(&dev_random, size * sizeof(curandState));
-
-	count_pi<<<NB, TPB>>>(d_counts, dev_random);
-
-	counts = (uint32_t*)  malloc(size * sizeof(uint32_t));
-	
+	/* Compute pi on the GPU */
+	printf("Estimating pi on the GPU… ");
+	double gpu_iStart = cpuSecond();
+	piLauncher(n, counts);
 	cudaDeviceSynchronize();
-	// TODO remove that mem copy. The GPU should compute the sum and send one number.
-	cudaMemcpy(counts, d_counts, size * sizeof(uint32_t), cudaMemcpyDeviceToHost);
-	cudaFree(dev_random);
-	cudaFree(d_counts);
 
-	uint32_t total = 0;
-	for (int i=0; i<size; i++)
-		total += counts[i];
+	for(int i = 0; i < n; i++){
+		count += counts[i];
+	}
+	pi = ((double)count / (double)NUM_ITER) * 4.0;
 
-	printf("%lf\n",  4.0 * ((double) total) / ((double) (size*ITER_PER_THREAD) ));
+	double gpu_iElaps = cpuSecond() - gpu_iStart;
+	printf("Done! in %f seconds\n", gpu_iElaps);
+
+	printf("The result is %f\n", pi);
 
 	return 0;
 }
