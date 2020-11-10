@@ -8,9 +8,9 @@
 #include <curand.h>
 
 // Oh boi, I hate those #define preprocessor directives.
-#define TPB 512
+#define TPB 1024
 #define NB 4
-#define ITER_PER_THREAD 1024
+#define ITER_PER_THREAD 1000000
 
 
 
@@ -35,7 +35,7 @@ __global__ void count_pi(uint32_t * storage, curandState * rand_states) {
 		if (x*x + y*y <= 1)
 			count++;
 	}
-
+	
 	storage[id] = count;
 }
 
@@ -53,21 +53,21 @@ int main() {
 	curandState *dev_random;
 	cudaMalloc(&dev_random, size * sizeof(curandState));
 
-	printf("size of curandState: %lu\n", sizeof(curandState));
-
 	count_pi<<<NB, TPB>>>(d_counts, dev_random);
 
 	counts = (uint32_t*)  malloc(size * sizeof(uint32_t));
 	
 	cudaDeviceSynchronize();
 	// TODO remove that mem copy. The GPU should compute the sum and send one number.
-	cudaMemcpy(counts, d_counts, size * sizeof(curandState), cudaMemcpyDeviceToHost);
+	cudaMemcpy(counts, d_counts, size * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+	cudaFree(dev_random);
+	cudaFree(d_counts);
 
 	uint32_t total = 0;
 	for (int i=0; i<size; i++)
 		total += counts[i];
 
-	printf("%lf\n", ((double) total) / ((double) size));
+	printf("%lf\n",  4.0 * ((double) total) / ((double) (size*ITER_PER_THREAD) ));
 
 	return 0;
 }
