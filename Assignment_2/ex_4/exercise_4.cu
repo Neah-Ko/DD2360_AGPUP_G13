@@ -4,11 +4,9 @@
 #include <curand_kernel.h>
 #include <curand.h>
 
-// #define NUM_ITER 1000000000
-#define NUM_ITER 10000000
-#define NUM_ITER_KERNEL 100
+#define NUM_ITER 1000000000
+#define NUM_THREADS 2048
 #define TPB 128
-
 
 double cpuSecond() {
    struct timeval tp;
@@ -16,7 +14,7 @@ double cpuSecond() {
    return ((double)tp.tv_sec + (double)tp.tv_usec*1.e-6);
 }
 
-__global__ void piKernel(size_t n, int * d_counts, curandState * states){
+__global__ void piKernel(size_t n, int c_num_iter, int * d_counts, curandState * states){
 	/* get index */
 	const int i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i > n) return;
@@ -24,20 +22,21 @@ __global__ void piKernel(size_t n, int * d_counts, curandState * states){
 	double x;
 	double y;
 	double z;
+	int c = 0;
 
     curand_init(i, i, 0, &states[i]);
-
-    for(int j = 0; j < NUM_ITER_KERNEL; j++){
+    for(int j = 0; j < (c_num_iter / NUM_THREADS); j++){
     	x = curand_uniform(&states[i]);
     	y = curand_uniform(&states[i]);
     	z = sqrt((x*x) + (y*y));
     	if (z <= 1.0) {
-            d_counts[i]++;
+            c++;
         }
     }
+    d_counts[i] = c;
 }
 
-void piLauncher(size_t n, int * counts){
+void piLauncher(size_t n, int c_num_iter, int c_tpb, int * counts){
 	int * d_counts;
 	curandState *dev_random;
 
@@ -46,7 +45,7 @@ void piLauncher(size_t n, int * counts){
 	cudaMalloc(&d_counts, n*sizeof(int));
 	cudaMemset(d_counts, 0, n*sizeof(int));
 
-	piKernel<<<(n + TPB -1), TPB>>>(n, d_counts, dev_random);
+	piKernel<<<NUM_THREADS/c_tpb, c_tpb>>>(n, c_num_iter, d_counts, dev_random);
 
 	cudaMemcpy(counts, d_counts, n*sizeof(int), cudaMemcpyDeviceToHost);
 
@@ -57,7 +56,10 @@ void piLauncher(size_t n, int * counts){
 
 int main(int argc, char **argv){
 	/* variables */
-	int n = NUM_ITER / NUM_ITER_KERNEL;
+	int c_num_iter = (argc > 1) ? strtol(argv[1], NULL, 10) : NUM_ITER;
+	int c_tpb = (argc > 2) ? strtol(argv[2], NULL, 10) : TPB;
+
+	int n = NUM_THREADS;
 	int counts[n];
 	int count = 0;
 	double pi;
@@ -65,13 +67,14 @@ int main(int argc, char **argv){
 	/* Compute pi on the GPU */
 	printf("Estimating pi on the GPU… ");
 	double gpu_iStart = cpuSecond();
-	piLauncher(n, counts);
+	piLauncher(n, c_num_iter, c_tpb, counts);
 	cudaDeviceSynchronize();
 
 	for(int i = 0; i < n; i++){
 		count += counts[i];
 	}
-	pi = ((double)count / (double)NUM_ITER) * 4.0;
+	pi = ((double)count / (double)c_num_iter) * 4.0;
+
 
 	double gpu_iElaps = cpuSecond() - gpu_iStart;
 	printf("Done! in %f seconds\n", gpu_iElaps);
