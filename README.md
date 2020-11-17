@@ -18,3 +18,6 @@ It is also possible to generate a binary suitable for both K420 and K80 with:
 ```{bash}
 nvcc -I/pdc/vol/cuda/cuda-10.0/samples/common/inc -gencode arch=compute_30,code=sm_30 -gencode arch=compute_37,code=sm_37 exercise_X.cu -o exercise_X
 ```
+
+## Assignment 3
+
