@@ -5,7 +5,7 @@
 #include <sys/time.h>
 
 #define BLOCK_SIZE  16
-#define HEADER_SIZE 122
+#define HEADER_SIZE 138
 
 typedef unsigned char BYTE;
 
