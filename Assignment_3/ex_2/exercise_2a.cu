@@ -44,27 +44,21 @@ __global__ void timestepKernel(size_t n, int t, Particle * d_vec){
 	);
 }
 
-double simulationLauncher(size_t n, int m, int tpb, Particle * vec){
+void simulationLauncher(size_t n, int m, int tpb, Particle * vec){
+	/* Data is copied back and forth at each timestep */
 	Particle * d_vec;
 	
-
 	cudaMalloc(&d_vec, n*sizeof(Particle));
 
-	double cpy_iStart1 = cpuSecond();
-	cudaMemcpy(d_vec, vec, n*sizeof(Particle), cudaMemcpyHostToDevice);
-	double cpy_iElaps1 = cpuSecond() - cpy_iStart1;
-
 	for(int t = 0; t < m; t++){
+		cudaMemcpy(d_vec, vec, n*sizeof(Particle), cudaMemcpyHostToDevice);
 		timestepKernel<<<(n + tpb - 1)/tpb, tpb>>>(n, t, d_vec);
+		cudaMemcpy(vec, d_vec, n*sizeof(Particle), cudaMemcpyDeviceToHost);
 	}
 
-	double cpy_iStart2 =cpuSecond();
-	cudaMemcpy(vec, d_vec, n*sizeof(Particle), cudaMemcpyDeviceToHost);
-	double cpy_iElaps2 = cpuSecond() - cpy_iStart2;
 
 	cudaFree(d_vec);
 
-	return cpy_iElaps1 + cpy_iElaps2;
 }
 
 void timestep(size_t n, int t, Particle * vec){
@@ -94,7 +88,19 @@ int main(int argc, char **argv){
 	int m = (argc > 2) ? strtol(argv[2], NULL, 10) : NUM_ITERATION;
 	int tpb = (argc > 3) ? strtol(argv[3], NULL, 10) : BLOCK_SIZE;
 
-	Particle gVec[n];
+	printf("npart: %d, nit: %d, bsz: %d\n", n, m, tpb);
+
+	// Particle gVec[n];
+
+	Particle * gVec;
+	cudaHostAlloc(&gVec, n*sizeof(Particle), cudaHostAllocDefault);
+
+
+	if(gVec == NULL){
+		printf("Particle array allocation failed\n");
+		return -1;
+	}
+
 	Particle cVec[n];
 	
 	/* generate data */
@@ -103,19 +109,6 @@ int main(int argc, char **argv){
 		gVec[i].position = make_float3(randFloat(), randFloat(), randFloat());
 		cVec[i].position = gVec[i].position;
 	}
-
-	// /* print */
-	// for(int i = 0; i < n; i ++){
-	// 	printf("%d: (%f, %f, %f) - (%f, %f, %f)\n",
-	// 		i,
-	// 		cVec[i].position.x,
-	// 		cVec[i].position.y,
-	// 		cVec[i].position.z,
-	// 		cVec[i].velocity.x,
-	// 		cVec[i].velocity.y,
-	// 		cVec[i].velocity.z
-	// 	);
-	// }
 
 	/* simulate: CPU */
 	printf("Simulating on the CPU… ");
@@ -129,13 +122,10 @@ int main(int argc, char **argv){
 	/* simulate: GPU */
 	printf("Simulating on the GPU… ");
 	double gpu_iStart = cpuSecond();
-	double cpy_time = simulationLauncher(n, m, tpb, gVec);
+	simulationLauncher(n, m, tpb, gVec);
 	cudaDeviceSynchronize();
 	double gpu_iElaps = cpuSecond() - gpu_iStart;
 	printf("Done! in %f seconds\n", gpu_iElaps);
-
-	/* print some data on stderr to record the data copying time. */
-	fprintf(stderr, "%d %d %lf\n", n, tpb, cpy_time);
 
 	/* Compare */
 	printf("Comparing the output for each implementation… ");
@@ -149,6 +139,8 @@ int main(int argc, char **argv){
 		return -1;
 	}
 	printf("Correct!\n");
+
+	cudaFreeHost(gVec);
 
 	return 0;
 }
