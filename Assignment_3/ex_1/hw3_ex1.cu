@@ -176,10 +176,36 @@ void cpu_grayscale(int width, int height, float *image, float *image_out)
  */
 __global__ void gpu_grayscale(int width, int height, float *image, float *image_out)
 {
-    ////////////////
-    // TO-DO #4.2 /////////////////////////////////////////////
-    // Implement the GPU version of the grayscale conversion //
-    ///////////////////////////////////////////////////////////
+/*             w
+        -----------------    
+        |BGR|BGR|BGR ...
+      h |..
+        |.
+*/
+
+    auto idw = blockIdx.x * blockDim.x + threadIdx.x;
+    auto idh = blockIdx.y * blockDim.y + threadIdx.y;
+    // Size: amount of pixels per thread.
+    auto w_size = width / (blockDim.x * gridDim.x);
+    auto h_size = height / (blockDim.y * gridDim.y);
+    
+    if (w_size == 0) w_size = 1;
+    if (h_size == 0) h_size = 1;
+
+    for (int h = idh * h_size; h < (idh+1) * h_size && h < height; h++) {
+        int offset_out = h * width;      // 1 color per pixel
+        int offset     = offset_out * 3; // 3 colors per pixel
+
+        for (int w = idw * w_size; w < (idw+1) * w_size && w < width; w++) {
+
+            float *pixel = &image[offset + w * 3];
+            // Convert to grayscale following the "luminance" model
+            image_out[offset_out + w] = pixel[0] * 0.0722f + // B
+                                        pixel[1] * 0.7152f + // G
+                                        pixel[2] * 0.2126f;  // R
+        }
+    }
+
 }
 
 /**
@@ -346,18 +372,18 @@ int main(int argc, char **argv)
     {
         // Launch the CPU version
         gettimeofday(&t[0], NULL);
-        cpu_grayscale(bitmap.width, bitmap.height, bitmap.data, image_out[0]);
+        //cpu_grayscale(bitmap.width, bitmap.height, bitmap.data, image_out[0]);
         gettimeofday(&t[1], NULL);
         
         elapsed[0] = get_elapsed(t[0], t[1]);
         
         // Launch the GPU version
         gettimeofday(&t[0], NULL);
-        // gpu_grayscale<<<grid, block>>>(bitmap.width, bitmap.height,
-        //                                d_bitmap, d_image_out[0]);
+        gpu_grayscale<<<grid, block>>>(bitmap.width, bitmap.height,
+                                       d_bitmap, d_image_out[0]);
         
-        // cudaMemcpy(image_out[0], d_image_out[0],
-        //            image_size * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(image_out[0], d_image_out[0],
+                   image_size * sizeof(float), cudaMemcpyDeviceToHost);
         gettimeofday(&t[1], NULL);
         
         elapsed[1] = get_elapsed(t[0], t[1]);
