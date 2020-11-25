@@ -7,6 +7,8 @@
 #define BLOCK_SIZE  16
 #define HEADER_SIZE 138
 
+#define BLOCK_SIZE_SH 18
+
 typedef unsigned char BYTE;
 
 /**
@@ -243,6 +245,10 @@ __device__ float gpu_applyFilter(float *image, int stride, float *matrix, int fi
     // > No it makes no sense as both function perform the same
     // things. So one should code only one and mark it with
     // __host__ __device__ so it can run on both cpu and gpu.
+    //
+    // > even the changes brung by the shared memory part implied
+    // no change to this perfect function.
+    //////////////////////////////////////////////////////////////
     
     float pixel = 0.0f;
 
@@ -287,20 +293,66 @@ void cpu_gaussian(int width, int height, float *image, float *image_out)
  */
 __global__ void gpu_gaussian(int width, int height, float *image, float *image_out)
 {
-    float gaussian[9] = { 1.0f / 16.0f, 2.0f / 16.0f, 1.0f / 16.0f,
-                          2.0f / 16.0f, 4.0f / 16.0f, 2.0f / 16.0f,
-                          1.0f / 16.0f, 2.0f / 16.0f, 1.0f / 16.0f };
-    
+
+    __shared__ float sh_block[BLOCK_SIZE_SH * BLOCK_SIZE_SH];
+
     int index_x = blockIdx.x * blockDim.x + threadIdx.x;
     int index_y = blockIdx.y * blockDim.y + threadIdx.y;
     
+    // Copy ONE pixel from the input image to the shared block
+    sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH + threadIdx.x + 1] = image[index_y * width + index_x];
+
+    // take care of the last row or first row or first column or last column
+    if (threadIdx.x == 0 && blockIdx.x != 0) {
+
+       	sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH]
+                                  = image[index_y * width + index_x - 1];
+
+        if (threadIdx.y == 0 && blockIdx.y != 0)
+            sh_block[0] = image[(index_y - 1) * width + index_x - 1];
+
+    } else if (threadIdx.x == blockDim.x - 1 && blockIdx.x != width - 1) {
+         
+         
+        sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH + threadIdx.x + 2]
+                                  = image[index_y * width + index_x + 1];
+
+        if (threadIdx.y == blockDim.y - 1 && index_y != height - 1)
+            sh_block[BLOCK_SIZE_SH*BLOCK_SIZE_SH-1] = image[(index_y + 1) * width + index_x + 1];
+         
+    } else if (threadIdx.y == 0 && blockIdx.y != 0) {
+
+       	sh_block[threadIdx.x + 1]
+                                  = image[(index_y - 1) * width + index_x];
+        
+        if (threadIdx.x == blockDim.x - 1 && index_x != width - 1)
+            sh_block[threadIdx.x + 2] = image[(index_y - 1) * width + index_x + 1];
+
+    } else if (threadIdx.y == blockDim.y - 1 && index_y != height - 1) {
+         
+         
+        sh_block[(threadIdx.y + 2) * BLOCK_SIZE_SH + threadIdx.x + 1]
+                                  = image[(index_y + 1) * width + index_x];
+
+        if (threadIdx.x == 0 && blockIdx.x != 0)
+            sh_block[(threadIdx.y+2) * BLOCK_SIZE_SH] = image[(index_y + 1) * width + index_x - 1];
+         
+    }
+
+
+    __syncthreads();
+
+    static float gaussian[9] = { 1.0f / 16.0f, 2.0f / 16.0f, 1.0f / 16.0f,
+                          2.0f / 16.0f, 4.0f / 16.0f, 2.0f / 16.0f,
+                          1.0f / 16.0f, 2.0f / 16.0f, 1.0f / 16.0f };
+    
     if (index_x < (width - 2) && index_y < (height - 2))
     {
-        int offset_t = index_y * width + index_x;
-        int offset   = (index_y + 1) * width + (index_x + 1);
+        int offset_sh = threadIdx.y * BLOCK_SIZE_SH + threadIdx.x;
+        int offset = (index_y + 1) * width + (index_x + 1);
         
-        image_out[offset] = gpu_applyFilter(&image[offset_t],
-                                            width, gaussian, 3);
+        image_out[offset] = gpu_applyFilter(&sh_block[offset_sh],
+                                       BLOCK_SIZE_SH, gaussian, 3);
     }
 }
 
@@ -344,6 +396,54 @@ __global__ void gpu_sobel(int width, int height, float *image, float *image_out)
     // It ressembles the gpu_gaussian. Somehow.      //
     ///////////////////////////////////////////////////
 
+    __shared__ float sh_block[BLOCK_SIZE_SH * BLOCK_SIZE_SH];
+
+    int index_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int index_y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    // copy one own pixel.
+    sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH + threadIdx.x + 1] = image[index_y * width + index_x];
+
+    // take care of the last row or first row or first column or last column
+    if (threadIdx.x == 0 && blockIdx.x != 0) {
+
+       	sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH]
+                                  = image[index_y * width + index_x - 1];
+
+        if (threadIdx.y == 0 && blockIdx.y != 0)
+            sh_block[0] = image[(index_y - 1) * width + index_x - 1];
+
+    } else if (threadIdx.x == blockDim.x - 1 && blockIdx.x != width - 1) {
+         
+         
+        sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH + threadIdx.x + 2]
+                                  = image[index_y * width + index_x + 1];
+
+        if (threadIdx.y == blockDim.y - 1 && index_y != height - 1)
+            sh_block[BLOCK_SIZE_SH*BLOCK_SIZE_SH-1] = image[(index_y + 1) * width + index_x + 1];
+         
+    } else if (threadIdx.y == 0 && blockIdx.y != 0) {
+
+       	sh_block[threadIdx.x + 1]
+                                  = image[(index_y - 1) * width + index_x];
+        
+        if (threadIdx.x == blockDim.x - 1 && index_x != width - 1)
+            sh_block[threadIdx.x + 2] = image[(index_y - 1) * width + index_x + 1];
+
+    } else if (threadIdx.y == blockDim.y - 1 && index_y != height - 1) {
+         
+         
+        sh_block[(threadIdx.y + 2) * BLOCK_SIZE_SH + threadIdx.x + 1]
+                                  = image[(index_y + 1) * width + index_x];
+
+        if (threadIdx.x == 0 && blockIdx.x != 0)
+            sh_block[(threadIdx.y+2) * BLOCK_SIZE_SH] = image[(index_y + 1) * width + index_x - 1];
+         
+    }
+
+
+    __syncthreads();
+
     static float sobel_x[9] = { 1.0f,  0.0f, -1.0f,
                          2.0f,  0.0f, -2.0f,
                          1.0f,  0.0f, -1.0f };
@@ -351,7 +451,17 @@ __global__ void gpu_sobel(int width, int height, float *image, float *image_out)
                          0.0f,  0.0f,  0.0f,
                         -1.0f, -2.0f, -1.0f };
 
-    auto idw = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index_y < height - 2 && index_x < width - 2) {
+
+        int offset_sh = (threadIdx.y * BLOCK_SIZE_SH) + threadIdx.x;
+
+        float gx = gpu_applyFilter(&sh_block[offset_sh], BLOCK_SIZE_SH, sobel_x, 3);
+        float gy = gpu_applyFilter(&sh_block[offset_sh], BLOCK_SIZE_SH, sobel_y, 3);
+
+        image_out[((index_y+1) * width) + (index_x + 1)] = sqrtf(gx*gx + gy*gy);
+    }
+
+/*    auto idw = blockIdx.x * blockDim.x + threadIdx.x;
     auto idh = blockIdx.y * blockDim.y + threadIdx.y;
     // Size: amount of pixels per thread.
     auto w_size = (width-2) / (blockDim.x * gridDim.x);
@@ -372,7 +482,7 @@ __global__ void gpu_sobel(int width, int height, float *image, float *image_out)
             image_out[offset + (w + 1)] = sqrtf(gx*gx + gy*gy);
         }
     }
-
+*/
 }
 
 int main(int argc, char **argv)
@@ -401,7 +511,9 @@ int main(int argc, char **argv)
                       ((bitmap.height + (BLOCK_SIZE - 1)) / BLOCK_SIZE));
     
     printf("Image opened (width=%d height=%d).\n", bitmap.width, bitmap.height);
-    
+    printf("Let's do this with %dx%d blocks with %dx%d threads each.\n",
+                                            grid.x, grid.y, block.x, block.y);
+ 
     // Allocate the intermediate image buffers for each step
     for (int i = 0; i < 2; i++)
     {
