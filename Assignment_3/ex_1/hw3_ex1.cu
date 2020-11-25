@@ -303,15 +303,15 @@ __global__ void gpu_gaussian(int width, int height, float *image, float *image_o
     sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH + threadIdx.x + 1] = image[index_y * width + index_x];
 
     // take care of the last row or first row or first column or last column
-    if (threadIdx.x == 0 && blockIdx.x != 0) {
+    if (threadIdx.x == 0 && index_x != 0) {
 
-       	sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH]
+        sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH]
                                   = image[index_y * width + index_x - 1];
 
-        if (threadIdx.y == 0 && blockIdx.y != 0)
+        if (threadIdx.y == 0 && index_y != 0)
             sh_block[0] = image[(index_y - 1) * width + index_x - 1];
 
-    } else if (threadIdx.x == blockDim.x - 1 && blockIdx.x != width - 1) {
+    } else if (threadIdx.x == blockDim.x - 1 && index_x != width - 1) {
          
          
         sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH + threadIdx.x + 2]
@@ -320,9 +320,9 @@ __global__ void gpu_gaussian(int width, int height, float *image, float *image_o
         if (threadIdx.y == blockDim.y - 1 && index_y != height - 1)
             sh_block[BLOCK_SIZE_SH*BLOCK_SIZE_SH-1] = image[(index_y + 1) * width + index_x + 1];
          
-    } else if (threadIdx.y == 0 && blockIdx.y != 0) {
+    } else if (threadIdx.y == 0 && index_y != 0) {
 
-       	sh_block[threadIdx.x + 1]
+        sh_block[threadIdx.x + 1]
                                   = image[(index_y - 1) * width + index_x];
         
         if (threadIdx.x == blockDim.x - 1 && index_x != width - 1)
@@ -334,11 +334,10 @@ __global__ void gpu_gaussian(int width, int height, float *image, float *image_o
         sh_block[(threadIdx.y + 2) * BLOCK_SIZE_SH + threadIdx.x + 1]
                                   = image[(index_y + 1) * width + index_x];
 
-        if (threadIdx.x == 0 && blockIdx.x != 0)
+        if (threadIdx.x == 0 && index_x != 0)
             sh_block[(threadIdx.y+2) * BLOCK_SIZE_SH] = image[(index_y + 1) * width + index_x - 1];
          
     }
-
 
     __syncthreads();
 
@@ -405,15 +404,15 @@ __global__ void gpu_sobel(int width, int height, float *image, float *image_out)
     sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH + threadIdx.x + 1] = image[index_y * width + index_x];
 
     // take care of the last row or first row or first column or last column
-    if (threadIdx.x == 0 && blockIdx.x != 0) {
+    if (threadIdx.x == 0 && index_x != 0) {
 
-       	sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH]
+        sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH]
                                   = image[index_y * width + index_x - 1];
 
-        if (threadIdx.y == 0 && blockIdx.y != 0)
+        if (threadIdx.y == 0 && index_y != 0)
             sh_block[0] = image[(index_y - 1) * width + index_x - 1];
 
-    } else if (threadIdx.x == blockDim.x - 1 && blockIdx.x != width - 1) {
+    } else if (threadIdx.x == blockDim.x - 1 && index_x != width - 1) {
          
          
         sh_block[(threadIdx.y + 1)* BLOCK_SIZE_SH + threadIdx.x + 2]
@@ -422,9 +421,9 @@ __global__ void gpu_sobel(int width, int height, float *image, float *image_out)
         if (threadIdx.y == blockDim.y - 1 && index_y != height - 1)
             sh_block[BLOCK_SIZE_SH*BLOCK_SIZE_SH-1] = image[(index_y + 1) * width + index_x + 1];
          
-    } else if (threadIdx.y == 0 && blockIdx.y != 0) {
+    } else if (threadIdx.y == 0 && index_y != 0) {
 
-       	sh_block[threadIdx.x + 1]
+        sh_block[threadIdx.x + 1]
                                   = image[(index_y - 1) * width + index_x];
         
         if (threadIdx.x == blockDim.x - 1 && index_x != width - 1)
@@ -436,11 +435,10 @@ __global__ void gpu_sobel(int width, int height, float *image, float *image_out)
         sh_block[(threadIdx.y + 2) * BLOCK_SIZE_SH + threadIdx.x + 1]
                                   = image[(index_y + 1) * width + index_x];
 
-        if (threadIdx.x == 0 && blockIdx.x != 0)
+        if (threadIdx.x == 0 && index_x != 0)
             sh_block[(threadIdx.y+2) * BLOCK_SIZE_SH] = image[(index_y + 1) * width + index_x - 1];
          
     }
-
 
     __syncthreads();
 
@@ -497,6 +495,9 @@ int main(int argc, char **argv)
     dim3     grid(1);                       // The grid will be defined later
     dim3     block(BLOCK_SIZE, BLOCK_SIZE); // The block size will not change
     
+    double   total_cpu_time = 0.0L;
+    double   total_gpu_time = 0.0L;
+
     // Make sure the filename is provided
     if (argc != 2)
     {
@@ -549,30 +550,34 @@ int main(int argc, char **argv)
         
         // Store the result image in grayscale
         store_result(1, elapsed[0], elapsed[1], bitmap.width, bitmap.height, image_out[0]);
+        total_cpu_time += elapsed[0];
+        total_gpu_time += elapsed[1];
     }
     
     // Step 2: Apply a 3x3 Gaussian filter
     {
         // Launch the CPU version
         gettimeofday(&t[0], NULL);
-        //cpu_gaussian(bitmap.width, bitmap.height, image_out[0], image_out[1]);
+        cpu_gaussian(bitmap.width, bitmap.height, image_out[0], image_out[1]);
         gettimeofday(&t[1], NULL);
         
         elapsed[0] = get_elapsed(t[0], t[1]);
         
         // Launch the GPU version
         gettimeofday(&t[0], NULL);
-        gpu_gaussian<<<grid, block>>>(bitmap.width, bitmap.height,
-                                      d_image_out[0], d_image_out[1]);
+        //gpu_gaussian<<<grid, block>>>(bitmap.width, bitmap.height,
+        //                              d_image_out[0], d_image_out[1]);
         
-        cudaMemcpy(image_out[1], d_image_out[1],
-                   image_size * sizeof(float), cudaMemcpyDeviceToHost);
+        //cudaMemcpy(image_out[1], d_image_out[1],
+        //           image_size * sizeof(float), cudaMemcpyDeviceToHost);
         gettimeofday(&t[1], NULL);
         
         elapsed[1] = get_elapsed(t[0], t[1]);
         
         // Store the result image with the Gaussian filter applied
         store_result(2, elapsed[0], elapsed[1], bitmap.width, bitmap.height, image_out[1]);
+       	total_cpu_time += elapsed[0];
+       	total_gpu_time += elapsed[1];
     }
     
     // Step 3: Apply a Sobel filter
@@ -597,6 +602,8 @@ int main(int argc, char **argv)
         
         // Store the final result image with the Sobel filter applied
         store_result(3, elapsed[0], elapsed[1], bitmap.width, bitmap.height, image_out[0]);
+       	total_cpu_time += elapsed[0];
+       	total_gpu_time += elapsed[1];
     }
     
     // Release the allocated memory
@@ -608,6 +615,8 @@ int main(int argc, char **argv)
     
     freeBMP(bitmap);
     cudaFree(d_bitmap);
+
+    printf("Total CPU time: %lf, total GPU time: %lf\n", total_cpu_time, total_gpu_time);
     
     return 0;
 }
