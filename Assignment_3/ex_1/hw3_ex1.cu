@@ -558,18 +558,18 @@ int main(int argc, char **argv)
     {
         // Launch the CPU version
         gettimeofday(&t[0], NULL);
-        cpu_gaussian(bitmap.width, bitmap.height, image_out[0], image_out[1]);
+        //cpu_gaussian(bitmap.width, bitmap.height, image_out[0], image_out[1]);
         gettimeofday(&t[1], NULL);
         
         elapsed[0] = get_elapsed(t[0], t[1]);
         
         // Launch the GPU version
         gettimeofday(&t[0], NULL);
-        //gpu_gaussian<<<grid, block>>>(bitmap.width, bitmap.height,
-        //                              d_image_out[0], d_image_out[1]);
+        gpu_gaussian<<<grid, block>>>(bitmap.width, bitmap.height,
+                                      d_image_out[0], d_image_out[1]);
         
-        //cudaMemcpy(image_out[1], d_image_out[1],
-        //           image_size * sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(image_out[1], d_image_out[1],
+                   image_size * sizeof(float), cudaMemcpyDeviceToHost);
         gettimeofday(&t[1], NULL);
         
         elapsed[1] = get_elapsed(t[0], t[1]);
