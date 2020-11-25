@@ -1,2 +1,4 @@
 # sftp remote transfer config file
 sftp-config.json
+# Result images
+*_result_*
