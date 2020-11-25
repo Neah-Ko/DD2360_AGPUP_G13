@@ -341,7 +341,38 @@ __global__ void gpu_sobel(int width, int height, float *image, float *image_out)
     ////////////////
     // TO-DO #6.1 /////////////////////////////////////
     // Implement the GPU version of the Sobel filter //
+    // It ressembles the gpu_gaussian. Somehow.      //
     ///////////////////////////////////////////////////
+
+    static float sobel_x[9] = { 1.0f,  0.0f, -1.0f,
+                         2.0f,  0.0f, -2.0f,
+                         1.0f,  0.0f, -1.0f };
+    static float sobel_y[9] = { 1.0f,  2.0f,  1.0f,
+                         0.0f,  0.0f,  0.0f,
+                        -1.0f, -2.0f, -1.0f };
+
+    auto idw = blockIdx.x * blockDim.x + threadIdx.x;
+    auto idh = blockIdx.y * blockDim.y + threadIdx.y;
+    // Size: amount of pixels per thread.
+    auto w_size = (width-2) / (blockDim.x * gridDim.x);
+    auto h_size = (height-2) / (blockDim.y * gridDim.y);
+
+    if (w_size == 0) w_size = 1;
+    if (h_size == 0) h_size = 1;
+
+    for (int h = idh * h_size; h < (idh+1) * h_size && h < height - 2; h++) {
+        int offset_in = h * width;
+        int offset    = (h+1) * width; // Ignore (first & last)-(row & column) of image_out.
+
+        for (int w = idw * w_size; w < (idw+1) * w_size && w < width - 2; w++) {
+
+            float gx = gpu_applyFilter(&image[offset_in + w], width, sobel_x, 3);
+            float gy = gpu_applyFilter(&image[offset_in + w], width, sobel_y, 3);
+
+            image_out[offset + (w + 1)] = sqrtf(gx*gx + gy*gy);
+        }
+    }
+
 }
 
 int main(int argc, char **argv)
@@ -436,18 +467,18 @@ int main(int argc, char **argv)
     {
         // Launch the CPU version
         gettimeofday(&t[0], NULL);
-        cpu_sobel(bitmap.width, bitmap.height, image_out[1], image_out[0]);
+        //cpu_sobel(bitmap.width, bitmap.height, image_out[1], image_out[0]);
         gettimeofday(&t[1], NULL);
         
         elapsed[0] = get_elapsed(t[0], t[1]);
         
         // Launch the GPU version
         gettimeofday(&t[0], NULL);
-        // gpu_sobel<<<grid, block>>>(bitmap.width, bitmap.height,
-        //                            d_image_out[1], d_image_out[0]);
+        gpu_sobel<<<grid, block>>>(bitmap.width, bitmap.height,
+                                   d_image_out[1], d_image_out[0]);
         
-        // cudaMemcpy(image_out[0], d_image_out[0],
-        //            image_size * sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(image_out[0], d_image_out[0],
+                   image_size * sizeof(float), cudaMemcpyDeviceToHost);
         gettimeofday(&t[1], NULL);
         
         elapsed[1] = get_elapsed(t[0], t[1]);
@@ -468,4 +499,3 @@ int main(int argc, char **argv)
     
     return 0;
 }
-
