@@ -21,3 +21,12 @@ nvcc -I/pdc/vol/cuda/cuda-10.0/samples/common/inc -gencode arch=compute_30,code=
 
 ## Assignment 3
 
+
+
+## Assignment 4
+
+Code compiled with gcc using the following compilation chain:
+
+```{bash}
+gcc ./exercise_X.c -lOpenCL -L/pdc/vol/cuda/cuda-9.1/lib64/ -o exercise_X
+```
