@@ -45,7 +45,7 @@ const char * helloKernel_program =
 " int gx = get_group_id(0);                                     \n"
 " int gy = get_group_id(1);                                     \n"
 " int gz = get_group_id(2);                                     \n"
-" printf(\"Hello World! Global: (%d, %d); Local: (%d, %d); Group: (%d, %d)\\n \", ix, iy, iz, jx, jy, jz, gx, gy, gz); \n"
+" printf(\"Hello World! Global: (%d, %d, %d); Local: (%d, %d, %d); Group: (%d, %d, %d)\\n \", ix, iy, iz, jx, jy, jz, gx, gy, gz); \n"
 "}                                                              \n";
 
 
