@@ -13,7 +13,6 @@
 #define FDIFF(a, b) fabs((a - b) / MIN(a, b))
 // This is a macro for checking the error variable.
 #define CHK_ERROR(err) if (err != CL_SUCCESS) fprintf(stderr,"Error: %s\n",clGetErrorString(err));
-
 // A errorCode to string converter (forward declaration)
 const char* clGetErrorString(int);
 
@@ -30,7 +29,7 @@ const char * saxpyKernel_program =
 void saxpyLauncher(size_t n, const float a, const float * x, float * y){
     cl_platform_id * platforms;
     cl_uint n_platform;
-    size_t byte_size = n * sizeof(float); 
+    cl_uint byte_size = n * sizeof(float); 
 
     // Find OpenCL Platforms
     cl_int err = clGetPlatformIDs(0, NULL, &n_platform);
@@ -93,8 +92,8 @@ void saxpyLauncher(size_t n, const float a, const float * x, float * y){
 
     /* launch kernel */
     cl_uint work_dim = 1;
-    const size_t n_workitem = n;
-    const size_t workgroup_size = 200;
+    const cl_uint n_workitem = n;
+    const cl_uint workgroup_size = 200;
 
     err = clEnqueueNDRangeKernel(cmd_queue,         // cl_command_queue command_queue,
                                kernel,              // cl_kernel kernel
@@ -108,18 +107,19 @@ void saxpyLauncher(size_t n, const float a, const float * x, float * y){
 
     CHK_ERROR(err);
 
+    /* Wait for it to finish */
+    err = clFinish(cmd_queue); CHK_ERROR(err);
+
     /* copy back on host */
     err = clEnqueueReadBuffer(cmd_queue, y_dev, CL_TRUE, 0, byte_size, y, 0, NULL, NULL);
 
-    /* Wait for it to finish */
+    /* Flush */
     err = clFlush(cmd_queue);  CHK_ERROR(err);
-    err = clFinish(cmd_queue); CHK_ERROR(err);
 
-
-	err = clReleaseKernel(kernel);    CHK_ERROR(err);
-	err = clReleaseProgram(program);  CHK_ERROR(err);
-	err = clReleaseMemObject(x_dev);   CHK_ERROR(err);
-	err = clReleaseMemObject(y_dev);  CHK_ERROR(err);
+    err = clReleaseKernel(kernel);    CHK_ERROR(err);
+    err = clReleaseProgram(program);  CHK_ERROR(err);
+    err = clReleaseMemObject(x_dev);   CHK_ERROR(err);
+    err = clReleaseMemObject(y_dev);  CHK_ERROR(err);
     /* ^ end of own code */
 
     // Finally, release all that we have allocated.
