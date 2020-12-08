@@ -6,23 +6,26 @@
 #include <CL/cl.h>
 
 
-#define ARRAY_SIZE 100000 // default
+#define ARRAY_SIZE 10000 // default
 #define BOUND_RAND 100
 #define FLOAT_TH 1e-4
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define FDIFF(a, b) fabs((a - b) / MIN(a, b))
 // This is a macro for checking the error variable.
-#define CHK_ERROR(err) if (err != CL_SUCCESS) fprintf(stderr,"Error: %s\n",clGetErrorString(err));
+#define CHK_ERROR(err) if (err != CL_SUCCESS) \
+                fprintf(stderr,"Error (%d): %s\n",__LINE__,clGetErrorString(err));
 // A errorCode to string converter (forward declaration)
 const char* clGetErrorString(int);
 
 
 const char * saxpyKernel_program = 
 "__kernel void saxpyKernel(const float a,           \n"
+"                  const unsigned long n,           \n"
 "						  __global const float * x, \n"
 "						  __global float * y){      \n"
 "	int i = get_global_id(0);                       \n"
-"	y[i] += a * x[i];                               \n"
+"   if (i <= n)                                     \n"
+"	    y[i] += a * x[i];                           \n"
 "}";
 
 
@@ -34,6 +37,7 @@ void saxpyLauncher(size_t n, const float a, const float * x, float * y){
     // Find OpenCL Platforms
     cl_int err = clGetPlatformIDs(0, NULL, &n_platform);
     CHK_ERROR(err);
+    fprintf(stderr, "Number of platforms: %u.\n", n_platform);
     platforms = (cl_platform_id *) malloc(sizeof(cl_platform_id)*n_platform);
     err = clGetPlatformIDs(n_platform, platforms, NULL);
     CHK_ERROR(err);
@@ -43,6 +47,7 @@ void saxpyLauncher(size_t n, const float a, const float * x, float * y){
     cl_uint n_devices;
     err = clGetDeviceIDs(platforms[0], CL_DEVICE_TYPE_GPU, 0,NULL, &n_devices);
     CHK_ERROR(err);
+    fprintf(stderr, "Number of devices: %u.\n", n_devices);
     device_list = (cl_device_id *) malloc(sizeof(cl_device_id) * n_devices);
     err = clGetDeviceIDs(platforms[0], CL_DEVICE_TYPE_GPU, n_devices, device_list, NULL);
     CHK_ERROR(err);
@@ -74,26 +79,32 @@ void saxpyLauncher(size_t n, const float a, const float * x, float * y){
     /* Declare buffers and set parameters */
     cl_mem x_dev = clCreateBuffer(context, CL_MEM_READ_ONLY, byte_size, NULL, &err);
     CHK_ERROR(err);
-    cl_mem y_dev = clCreateBuffer(context, CL_MEM_READ_WRITE, byte_size, NULL, &err);
+    cl_mem y_dev = clCreateBuffer(context, CL_MEM_WRITE_ONLY, byte_size, NULL, &err);
     CHK_ERROR(err);
 
     err = clEnqueueWriteBuffer(cmd_queue, x_dev, CL_TRUE, 0, byte_size, x, 0, NULL, NULL);
     CHK_ERROR(err);
-    err = clEnqueueWriteBuffer(cmd_queue, y_dev, CL_TRUE, 0, byte_size, y, 0, NULL, NULL);
-    CHK_ERROR(err);
+    //err = clEnqueueWriteBuffer(cmd_queue, y_dev, CL_TRUE, 0, byte_size, y, 0, NULL, NULL);
+    //CHK_ERROR(err);
 
 
     err = clSetKernelArg(kernel, 0, sizeof(float), &a);
     CHK_ERROR(err);
-    err = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *) &x_dev);
+    err = clSetKernelArg(kernel, 1, sizeof(size_t), &n);
     CHK_ERROR(err);
-    err = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *) &y_dev);
+    err = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *) &x_dev);
+    CHK_ERROR(err);
+    err = clSetKernelArg(kernel, 3, sizeof(cl_mem), (void *) &y_dev);
     CHK_ERROR(err);
 
     /* launch kernel */
     cl_uint work_dim = 1;
-    const cl_uint n_workitem = n;
-    const cl_uint workgroup_size = 200;
+    // It is asked that the work group size is 256, therefore we need to adapt the number
+    // of work item into being a multiple of 256.
+    const size_t workgroup_size = 256;
+    const size_t n_workitem = ( (n-1)/256 + 1) * 256;
+    fprintf(stderr, "Total number of work items: %lu = %lu × %lu.\n",
+            n_workitem, workgroup_size, n_workitem / workgroup_size);
 
     err = clEnqueueNDRangeKernel(cmd_queue,         // cl_command_queue command_queue,
                                kernel,              // cl_kernel kernel
@@ -103,7 +114,7 @@ void saxpyLauncher(size_t n, const float a, const float * x, float * y){
               (const size_t *) &workgroup_size,     // const size_t *local_work_size
                                0,                   // cl_uint num_events_in_wait_list
                                NULL,                // const cl_event *event_wait_list
-                               NULL);               // cl_event *event
+                               NULL);     	        // cl_event *event
 
     CHK_ERROR(err);
 
@@ -159,10 +170,9 @@ int main(int argc, char **argv){
 	/* generate data */
 	srand(time(NULL)); // seed
 	a = randFloat();
-	for(size_t i = 0; i < n; i++){
+	for(size_t i = 0; i < (size_t) n; i++){
 		x[i] = randFloat(); 
-		y[i] = randFloat();
-		y_k[i] = y[i];
+		y_k[i] = y[i] = randFloat();
 	}
 
 	/* CPU version */
@@ -183,13 +193,12 @@ int main(int argc, char **argv){
 	/* Compare */
 	printf("Comparing the output for each implementation… ");
 	float avgE = 0;
-	for(size_t i = 0; i < n; i++){
+	for(size_t i = 0; i < (size_t) n; i++){
 		avgE += FDIFF(y[i], y_k[i]);
-		// avgE += fabs((y[i] - y_k[i]) / min(y[i], y_k[i]));
 	}
 	avgE /= n;
 	if(avgE > FLOAT_TH){
-		printf("Incorrect!\n");
+		printf("Incorrect!, (abg diff = %f)\n", avgE);
 		return -1;
 	}
 	printf("Correct!\n");
