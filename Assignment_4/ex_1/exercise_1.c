@@ -108,8 +108,8 @@ int main(int argc, char **argv) {
 
     /* V4 */
     cl_uint work_dim = 3;
-    const size_t n_workitem[3] = {8, 8, 8};
-    const size_t workgroup_size[3] = {4, 4, 4};
+    const size_t n_workitem[3] = {9, 9, 9};
+    const size_t workgroup_size[3] = {3, 3, 3};
 
     err = clEnqueueNDRangeKernel(cmd_queue,         // cl_command_queue command_queue,
                                kernel,              // cl_kernel kernel
