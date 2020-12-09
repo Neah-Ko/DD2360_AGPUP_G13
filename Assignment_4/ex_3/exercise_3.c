@@ -8,6 +8,7 @@
 // defaults 
 #define NUM_PARTICLES 10000
 #define NUM_ITERATION 500
+#define WG_SIZE 128
 #define BOUND_RAND 100
 #define FLOAT_TH 1e-4
 #define MIN(a,b) (((a)<(b))?(a):(b))
@@ -24,12 +25,15 @@ struct Particle {
 
 /* We need to define structure in the kernel else it is not seen */
 const char * timestepKernel_program =
-"__kernel void timestepKernel(int t, __global struct Particle * vec){ 	\n"
+"__kernel void timestepKernel(int n,           \n" 
+"                             int t,           \n"
+"                             __global struct Particle * vec){ 	\n"
 "	struct Particle {           				\n" 
 "		float posx, posy, posz; 				\n"
 "		float velx, vely, velz; 				\n"
 "	};                          				\n"
 "	int i = get_global_id(0);   				\n"
+"   if (i > n) return;                          \n"
 " 	vec[i].velx = ((t & 0xF435) / 100.0);		\n"
 "	vec[i].vely = ((t & 0xF445) / 100.0);		\n"
 "	vec[i].velz = ((t & 0xF465) / 100.0);		\n"
@@ -50,7 +54,7 @@ double cpuSecond() {
 }
 
 
-void simulationLauncher(size_t n, int nts, struct Particle * vec){
+void simulationLauncher(size_t n, int wgs, int nts, struct Particle * vec){
     cl_platform_id * platforms;
     cl_uint n_platform;
 
@@ -102,22 +106,35 @@ void simulationLauncher(size_t n, int nts, struct Particle * vec){
     cl_mem vec_dev = clCreateBuffer(context, CL_MEM_READ_WRITE, byte_size, NULL, &err);
     CHK_ERROR(err);
 
+    /* write in buffer */
+    
+	double copy_iStart = cpuSecond();
+    err = clEnqueueWriteBuffer(cmd_queue, vec_dev, CL_TRUE, 0, byte_size, vec, 0, NULL, NULL);
+    CHK_ERROR(err);
+	double copy_iElaps = cpuSecond() - copy_iStart;
+    printf("\n\tCopy time: %f seconds", copy_iElaps);
+
+    err = clFinish(cmd_queue); CHK_ERROR(err);
+    /* set fixed parameters */
+    err = clSetKernelArg(kernel, 0, sizeof(cl_uint), &n);
+    CHK_ERROR(err);
+    err = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *) &vec_dev);
+    CHK_ERROR(err);
+
+    /* set dimensions */
+    cl_uint work_dim = 1;
+    const size_t workgroup_size = wgs;
+	size_t n_workitem = ((n-1)/workgroup_size + 1) * workgroup_size;
+    // size_t n_workitem = n;
+	// n_workitem += (n_workitem % workgroup_size) > 0 ? (workgroup_size - (n_workitem % workgroup_size)) : 0;
+	double kernel_iStart = cpuSecond();
+	/* simulate */
     for(cl_uint t = 0; t < nts; t++){
-	    /* write in buffer */
-	    err = clEnqueueWriteBuffer(cmd_queue, vec_dev, CL_TRUE, 0, byte_size, vec, 0, NULL, NULL);
-	    CHK_ERROR(err);
 
-	    /* set parameters */
-	    err = clSetKernelArg(kernel, 0, sizeof(cl_uint), &t);
-	    CHK_ERROR(err);
-	    err = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *) &vec_dev);
-	    CHK_ERROR(err);
+		err = clSetKernelArg(kernel, 1, sizeof(cl_uint), &t);
+		CHK_ERROR(err);
 
-    	/* launch kernel */
-	    cl_uint work_dim = 1;
-	    const size_t n_workitem = n;
-	    const size_t workgroup_size = 200;
-
+		/* launch kernel */
 	    err = clEnqueueNDRangeKernel(cmd_queue,         // cl_command_queue command_queue,
 	                               kernel,              // cl_kernel kernel
 	                               work_dim,            // cl_uint work_dim
@@ -129,11 +146,13 @@ void simulationLauncher(size_t n, int nts, struct Particle * vec){
 	                               NULL);               // cl_event *event
 
 	    CHK_ERROR(err);
-		/* Wait for it to finish */
-	    err = clFinish(cmd_queue); CHK_ERROR(err);
-	    /* copy back on host */
-	    err = clEnqueueReadBuffer(cmd_queue, vec_dev, CL_TRUE, 0, byte_size, vec, 0, NULL, NULL);
     }
+	/* Wait for it to finish */
+    err = clFinish(cmd_queue); CHK_ERROR(err);
+	double kernel_iElaps = cpuSecond() - kernel_iStart;
+    printf("\n\tKernel time: %f seconds\n", kernel_iElaps);
+    /* copy back on host */
+    err = clEnqueueReadBuffer(cmd_queue, vec_dev, CL_TRUE, 0, byte_size, vec, 0, NULL, NULL);
     /* Flush */
     err = clFlush(cmd_queue);  CHK_ERROR(err);
     err = clReleaseKernel(kernel);    CHK_ERROR(err);
@@ -172,6 +191,7 @@ int main(int argc, char **argv){
 	/* variables */
 	int n = (argc > 1) ? strtol(argv[1], NULL, 10) : NUM_PARTICLES;
 	int m = (argc > 2) ? strtol(argv[2], NULL, 10) : NUM_ITERATION;
+	int wgs = (argc > 3) ? strtol(argv[3], NULL, 10) : WG_SIZE;
 
 	struct Particle gVec[n];
 	struct Particle cVec[n];
@@ -200,9 +220,9 @@ int main(int argc, char **argv){
 	/* simulate: GPU */
 	printf("Simulating on the GPU… ");
 	double gpu_iStart = cpuSecond();
-	simulationLauncher(n, m, gVec);
+	simulationLauncher(n, wgs, m, gVec);
 	double gpu_iElaps = cpuSecond() - gpu_iStart;
-	printf("Done! in %f seconds\n", gpu_iElaps);
+	printf("\tDone! in %f seconds\n", gpu_iElaps);
 
 	/* Print */
 	// for(int i = 0; i < n; i++){
